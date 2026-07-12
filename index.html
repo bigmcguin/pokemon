@@ -21,7 +21,7 @@
 <div class="toolbar">
   <label>Sort:
     <select id="sort">
-      <option value="-tcgplayer.prices.holofoil.market">Price (high → low)</option>
+      <option value="price">Price (high → low)</option>
       <option value="-set.releaseDate">Newest first</option>
       <option value="set.releaseDate">Oldest first</option>
       <option value="name">Name (A–Z)</option>
@@ -31,10 +31,8 @@
 </div>
 
 <div id="settings">
-  <h3>Settings</h3>
-  <label for="apiKey">Pokémon TCG API key (optional — raises the rate limit; free at <a href="https://dev.pokemontcg.io" target="_blank" rel="noopener" class="inline-link">dev.pokemontcg.io</a>)</label>
-  <input id="apiKey" type="text" placeholder="Paste API key here" autocomplete="off">
-  <label>Fallback grade multipliers (× raw price — only used when live graded prices are unavailable)</label>
+  <h3>Grade estimate settings</h3>
+  <label>Fallback multipliers (× raw price — only used when live graded prices are unavailable for a card)</label>
   <div class="mult-grid" id="multGrid"></div>
   <button class="save-btn" id="saveSettings">Save</button>
 </div>
@@ -46,6 +44,9 @@
   <div class="grid" id="results"></div>
   <section id="setsSection">
     <h2 class="browse-title">Browse sets</h2>
+    <div class="set-search-wrap">
+      <input id="setSearch" type="search" placeholder="Find a set… e.g. Evolving Skies">
+    </div>
     <div id="setsList"></div>
   </section>
 </main>

@@ -6,9 +6,11 @@ prices (PSA / BGS / CGC / SGC).
 
 ## Features
 
-- **Search any card** by name (e.g. `Charizard`) or name + number (e.g. `Umbreon 197`)
-- **Browse sets** — every English set grouped by series; open one to see all its
-  cards from #1 onwards in collector-number order, with images and prices
+- **Search any card** by name (e.g. `Charizard`) or name + number (e.g. `Umbreon 197`),
+  sortable by price, newest, oldest or name
+- **Browse sets** — every English set grouped by series (newest three series shown
+  first, with a "Show all sets" button), with a set-search box that filters as you
+  type; open a set to see all its cards from #1 onwards in collector-number order
 - **Raw market prices** from the free [Pokémon TCG API](https://pokemontcg.io):
   TCGPlayer low/market/high (USD) per variant, plus Cardmarket trend and averages (EUR)
 - **Real graded prices** from [PriceCharting](https://www.pricecharting.com)
@@ -24,13 +26,12 @@ prices (PSA / BGS / CGC / SGC).
 1. Go to [vercel.com](https://vercel.com), sign up (free) with your GitHub account
 2. Click **Add New → Project** and import the `pokemon` repository, then **Deploy**
    (no build settings needed — Vercel auto-detects everything)
-3. To enable real graded prices, subscribe to
-   [PriceCharting's API](https://www.pricecharting.com/api-documentation) and copy
-   your API token, then in Vercel go to your project's
-   **Settings → Environment Variables** and add:
-   - Name: `PRICECHARTING_TOKEN`
-   - Value: *your token*
-4. Redeploy (Deployments → ⋯ on the latest → Redeploy) so the variable takes effect
+3. In Vercel, go to the project's **Settings → Environment Variables** and add:
+   - `PRICECHARTING_TOKEN` — your [PriceCharting API](https://www.pricecharting.com/api-documentation)
+     token (paid sub), enables real graded prices
+   - `POKEMONTCG_API_KEY` — your free [dev.pokemontcg.io](https://dev.pokemontcg.io)
+     key (optional), raises the card database's rate limit
+4. Redeploy (Deployments → ⋯ on the latest → Redeploy) so the variables take effect
 
 Your site is live at `https://<project>.vercel.app` — open it on your phone and
 use "Add to Home Screen" for an app-like icon.
@@ -46,13 +47,13 @@ instead of live PriceCharting data.
 | `styles.css` | Styling |
 | `app.js` | Search, set browser, card detail, settings |
 | `api/prices.js` | Vercel serverless function — PriceCharting proxy with 24 h edge caching |
+| `api/tcg.js` | Vercel serverless function — cached proxy for the Pokémon TCG API (6–24 h) |
 
 ## Notes
 
 - Card database is English-language cards only (that's all the Pokémon TCG API covers)
-- The optional Pokémon TCG API key in ⚙ Settings raises that API's rate limit —
-  free at [dev.pokemontcg.io](https://dev.pokemontcg.io). It's stored in the
-  visitor's browser only.
-- The PriceCharting token is **never** exposed to visitors — it lives in a Vercel
-  environment variable and all calls go through `api/prices.js`
+- Both API keys live in Vercel environment variables and are **never** exposed to
+  visitors — all upstream calls go through the two `api/` functions
+- Edge caching means repeat views of any set, search or card cost little to no
+  upstream API quota and load near-instantly
 - Check PriceCharting's API terms regarding attribution when displaying their data publicly

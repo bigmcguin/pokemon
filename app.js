@@ -1,7 +1,10 @@
 (() => {
   "use strict";
 
-  const API = "https://api.pokemontcg.io/v2";
+  const DIRECT_API = "https://api.pokemontcg.io/v2/";
+  // Only request the fields the app uses — cuts payloads by more than half.
+  const CARD_FIELDS = "id,name,number,rarity,set,images,tcgplayer,cardmarket";
+  const INITIAL_SERIES_SHOWN = 3;
 
   const DEFAULT_MULTIPLIERS = [
     { key: "psa10",  label: "PSA 10",  mult: 4.0 },
@@ -17,15 +20,37 @@
     sets: [],
     searchResults: [],
     setCards: [],
-    setCardsCache: new Map(), // set id -> sorted cards
+    setCardsCache: new Map(),
+    showAllSets: false,
   };
+
+  // ---------- API access (via our cached Vercel proxy, direct as fallback) ----------
+  let useBackend = true;
+
+  async function tcgFetch(path, params) {
+    const qs = new URLSearchParams(params).toString();
+    if (useBackend) {
+      try {
+        const res = await fetch("/api/tcg?path=" + path + (qs ? "&" + qs : ""));
+        const ct = res.headers.get("content-type") || "";
+        if (res.ok && ct.includes("json")) return res.json();
+        // Non-JSON or hard failure means there's no backend on this host
+        // (e.g. opened as a plain file) — fall back to calling the API directly.
+        useBackend = false;
+      } catch (err) {
+        useBackend = false;
+      }
+    }
+    const res = await fetch(DIRECT_API + path + (qs ? "?" + qs : ""));
+    if (!res.ok) throw new Error("API responded with " + res.status);
+    return res.json();
+  }
 
   // ---------- Settings (localStorage) ----------
   function loadSettings() {
     let saved = {};
     try { saved = JSON.parse(localStorage.getItem("pcv-settings") || "{}"); } catch (e) {}
     return {
-      apiKey: saved.apiKey || "",
       multipliers: DEFAULT_MULTIPLIERS.map(d => ({
         ...d,
         mult: (saved.multipliers && typeof saved.multipliers[d.key] === "number")
@@ -35,12 +60,7 @@
   }
   const settings = loadSettings();
 
-  function apiHeaders() {
-    return settings.apiKey ? { "X-Api-Key": settings.apiKey } : {};
-  }
-
   function renderSettingsForm() {
-    $("apiKey").value = settings.apiKey;
     $("multGrid").innerHTML = settings.multipliers.map(m => `
       <div>
         <label for="mult-${m.key}">${m.label}</label>
@@ -60,8 +80,7 @@
       if (!isNaN(v) && v >= 0) { m.mult = v; }
       multipliers[m.key] = m.mult;
     });
-    settings.apiKey = $("apiKey").value.trim();
-    localStorage.setItem("pcv-settings", JSON.stringify({ apiKey: settings.apiKey, multipliers }));
+    localStorage.setItem("pcv-settings", JSON.stringify({ multipliers }));
     $("settings").classList.remove("open");
   });
 
@@ -135,55 +154,83 @@
   // ---------- Set browser ----------
   async function loadSets() {
     try {
-      const res = await fetch(API + "/sets?pageSize=250&orderBy=-releaseDate", { headers: apiHeaders() });
-      if (!res.ok) throw new Error("API responded with " + res.status);
-      const json = await res.json();
+      const json = await tcgFetch("sets", { pageSize: 250, orderBy: "-releaseDate" });
       state.sets = json.data || [];
       renderSets();
     } catch (err) {
       $("setsList").innerHTML =
-        `<p style="color:var(--muted);text-align:center;padding:1rem">Couldn't load the set list (${err.message}). Refresh to retry.</p>`;
+        `<p class="sets-note">Couldn't load the set list (${err.message}). Refresh to retry.</p>`;
     }
   }
 
+  function setTileHTML(s) {
+    return `
+      <div class="set-tile" data-set="${s.id}">
+        <img src="${s.images.logo}" alt="${s.name}" loading="lazy">
+        <div class="set-name">${s.name}</div>
+        <div class="set-meta">${s.total} cards · ${s.releaseDate || ""}</div>
+      </div>`;
+  }
+
   function renderSets() {
-    // Sets arrive newest-first; group consecutive runs of the same series
-    // (Scarlet & Violet, Sword & Shield, …) under a heading.
-    let html = "";
-    let currentSeries = null;
-    let open = false;
-    for (const s of state.sets) {
-      if (s.series !== currentSeries) {
-        if (open) html += "</div>";
-        currentSeries = s.series;
-        html += `<div class="series-title">${s.series}</div><div class="sets-grid">`;
-        open = true;
-      }
-      html += `
-        <div class="set-tile" data-set="${s.id}">
-          <img src="${s.images.logo}" alt="${s.name}" loading="lazy">
-          <div class="set-name">${s.name}</div>
-          <div class="set-meta">${s.total} cards · ${s.releaseDate || ""}</div>
-        </div>`;
+    const filter = $("setSearch").value.trim().toLowerCase();
+    const matching = filter
+      ? state.sets.filter(s =>
+          s.name.toLowerCase().includes(filter) || s.series.toLowerCase().includes(filter))
+      : state.sets;
+
+    if (!matching.length) {
+      $("setsList").innerHTML = `<p class="sets-note">No sets match your search.</p>`;
+      return;
     }
-    if (open) html += "</div>";
+
+    // Sets arrive newest-first; group consecutive runs of the same series.
+    const groups = [];
+    for (const s of matching) {
+      if (!groups.length || groups[groups.length - 1].series !== s.series) {
+        groups.push({ series: s.series, sets: [] });
+      }
+      groups[groups.length - 1].sets.push(s);
+    }
+
+    const collapsed = !filter && !state.showAllSets && groups.length > INITIAL_SERIES_SHOWN;
+    const visible = collapsed ? groups.slice(0, INITIAL_SERIES_SHOWN) : groups;
+
+    let html = visible.map(g =>
+      `<div class="series-title">${g.series}</div>
+       <div class="sets-grid">${g.sets.map(setTileHTML).join("")}</div>`
+    ).join("");
+
+    if (collapsed) {
+      const hiddenCount = groups.slice(INITIAL_SERIES_SHOWN).reduce((n, g) => n + g.sets.length, 0);
+      html += `<div class="show-all-wrap">
+        <button id="showAllSets" class="show-all-btn">Show all sets (${hiddenCount} more)</button>
+      </div>`;
+    }
+
     $("setsList").innerHTML = html;
     document.querySelectorAll(".set-tile").forEach(tile => {
       tile.addEventListener("click", () => { location.hash = "set=" + encodeURIComponent(tile.dataset.set); });
     });
+    const showAll = $("showAllSets");
+    if (showAll) showAll.addEventListener("click", () => { state.showAllSets = true; renderSets(); });
   }
+
+  $("setSearch").addEventListener("input", renderSets);
+  $("setSearch").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const first = document.querySelector(".set-tile");
+    if (first) location.hash = "set=" + encodeURIComponent(first.dataset.set);
+  });
 
   async function fetchAllSetCards(setId) {
     if (state.setCardsCache.has(setId)) return state.setCardsCache.get(setId);
     const all = [];
     let page = 1;
     while (true) {
-      const res = await fetch(
-        API + "/cards?q=" + encodeURIComponent("set.id:" + setId) + "&pageSize=250&page=" + page,
-        { headers: apiHeaders() }
-      );
-      if (!res.ok) throw new Error("API responded with " + res.status);
-      const json = await res.json();
+      const json = await tcgFetch("cards", {
+        q: "set.id:" + setId, pageSize: 250, page, select: CARD_FIELDS,
+      });
       all.push(...(json.data || []));
       if (!json.data || !json.data.length || all.length >= (json.totalCount || 0)) break;
       page++;
@@ -235,26 +282,34 @@
     setStatus("Searching…");
     $("results").innerHTML = "";
 
-    const url = API + "/cards?q=" + encodeURIComponent(q) +
-      "&orderBy=" + encodeURIComponent($("sort").value) +
-      "&pageSize=60";
+    const sortVal = $("sort").value;
+    // The API can't sort by price server-side, so for the price sort we fetch
+    // a big page and order it here instead.
+    const orderBy = sortVal === "price" ? "-set.releaseDate" : sortVal;
 
     try {
-      const res = await fetch(url, { headers: apiHeaders() });
-      if (!res.ok) throw new Error("API responded with " + res.status);
-      const json = await res.json();
-      state.searchResults = json.data || [];
-      if (!state.searchResults.length) {
+      const json = await tcgFetch("cards", {
+        q, orderBy, pageSize: 250, select: CARD_FIELDS,
+      });
+      let cards = json.data || [];
+      if (!cards.length) {
+        state.searchResults = [];
         setStatus(`No cards found for “${raw}”. Try a shorter name (e.g. just “Charizard”).`);
         return;
       }
-      setStatus(`${json.totalCount ?? state.searchResults.length} card(s) found — showing ${state.searchResults.length}. Tap a card for prices.`);
-      renderTiles($("results"), state.searchResults, "search");
+      if (sortVal === "price") {
+        cards = cards.slice().sort((a, b) => (bestMarketPrice(b) ?? -1) - (bestMarketPrice(a) ?? -1));
+      }
+      state.searchResults = cards;
+      const total = json.totalCount ?? cards.length;
+      setStatus(total > cards.length
+        ? `${total} cards found — showing the ${cards.length} most recent. Add a word to narrow it down.`
+        : `${total} card(s) found. Tap a card for prices.`);
+      renderTiles($("results"), cards, "search");
     } catch (err) {
       setStatus(
-        "Couldn't reach the Pokémon TCG API (" + err.message + "). " +
-        "The free API is sometimes slow or rate-limited — wait a moment and try again, " +
-        "or add a free API key under ⚙ Settings.", true);
+        "Couldn't reach the card database (" + err.message + "). " +
+        "Wait a moment and try again.", true);
     }
   }
 
