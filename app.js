@@ -59,23 +59,52 @@
   for (const c of recent) if (c && !state.cardIndex.has(c.id)) state.cardIndex.set(c.id, c);
 
   // ---------- API access (via our cached Vercel proxy, direct as fallback) ----------
-  let useBackend = true;
+  // backendAbsent is only set when there's genuinely no backend on this host
+  // (e.g. the page was opened as a plain file) — never on a transient error,
+  // so one slow upstream moment doesn't disable the proxy for the session.
+  let backendAbsent = false;
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  function fetchWithTimeout(url, ms) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms);
+    return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
+  }
 
   async function tcgFetch(path, params) {
     const qs = new URLSearchParams(params).toString();
-    if (useBackend) {
-      try {
-        const res = await fetch("/api/tcg?path=" + path + (qs ? "&" + qs : ""));
-        const ct = res.headers.get("content-type") || "";
-        if (res.ok && ct.includes("json")) return res.json();
-        useBackend = false;
-      } catch (err) {
-        useBackend = false;
+    let lastErr;
+
+    if (!backendAbsent) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt) await sleep(1000 * attempt);
+        try {
+          const res = await fetchWithTimeout("/api/tcg?path=" + path + (qs ? "&" + qs : ""), 30000);
+          const ct = res.headers.get("content-type") || "";
+          if (res.ok && ct.includes("json")) return res.json();
+          if (res.status === 404 && !ct.includes("json")) {
+            backendAbsent = true;
+            break;
+          }
+          lastErr = new Error("server responded with " + res.status);
+        } catch (err) {
+          lastErr = err;
+        }
       }
     }
-    const res = await fetch(DIRECT_API + path + (qs ? "?" + qs : ""));
-    if (!res.ok) throw new Error("API responded with " + res.status);
-    return res.json();
+
+    // Last resort: the API directly (also the normal path on static hosting).
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt) await sleep(1500);
+      try {
+        const res = await fetchWithTimeout(DIRECT_API + path + (qs ? "?" + qs : ""), 30000);
+        if (res.ok) return res.json();
+        lastErr = new Error("API responded with " + res.status);
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr || new Error("network error");
   }
 
   // ---------- Exchange rates ----------
@@ -533,8 +562,8 @@
     } catch (err) {
       $("results").innerHTML = "";
       setStatus(
-        "Couldn't reach the card database (" + err.message + "). " +
-        "Wait a moment and try again.", true);
+        "The card database is having a slow moment and didn't answer after several tries — " +
+        "tap Search again in a few seconds.", true);
     }
   }
 

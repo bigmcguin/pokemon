@@ -26,13 +26,24 @@ export default async function handler(req, res) {
   }
 
   const qs = new URLSearchParams(params).toString();
-  try {
-    const upstream = await fetch(UPSTREAM + path + (qs ? "?" + qs : ""), { headers });
-    const body = await upstream.text();
-    res.status(upstream.status);
-    res.setHeader("Content-Type", "application/json");
-    return res.send(body);
-  } catch (err) {
-    return res.status(502).json({ error: "Could not reach the Pokémon TCG API: " + err.message });
+  const url = UPSTREAM + path + (qs ? "?" + qs : "");
+
+  // The upstream API has slow moments — give it two chances within our window.
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const upstream = await fetch(url, { headers, signal: AbortSignal.timeout(12000) });
+      if (upstream.status >= 500 && attempt === 0) {
+        lastErr = new Error("upstream responded with " + upstream.status);
+        continue;
+      }
+      const body = await upstream.text();
+      res.status(upstream.status);
+      res.setHeader("Content-Type", "application/json");
+      return res.send(body);
+    } catch (err) {
+      lastErr = err;
+    }
   }
+  return res.status(502).json({ error: "Could not reach the Pokémon TCG API: " + (lastErr && lastErr.message) });
 }

@@ -3,11 +3,54 @@
 // Vercel — it is never sent to the browser. Responses are cached at Vercel's
 // edge for 24 hours (card prices update daily at most), so repeat lookups of
 // the same card cost zero API quota.
+//
+// Matching strategy: PriceCharting's single-best-match endpoint is strict, so
+// instead we search their catalogue (/api/products) with a few query
+// variations and pick the right product ourselves by comparing the card
+// number, name and set. Only then do we fetch that product's prices.
 
 const memoryCache = new Map();
 const TTL_MS = 24 * 60 * 60 * 1000;
+const PC = "https://www.pricecharting.com";
 
 const cents = (v) => (typeof v === "number" && v > 0 ? v / 100 : null);
+const norm = (s) => String(s || "").toLowerCase()
+  .replace(/[^a-z0-9#& ]+/g, " ").replace(/\s+/g, " ").trim();
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function pickBest(products, name, number, setName) {
+  const nameTokens = norm(name).split(" ").filter(Boolean);
+  const setTokens = norm(setName).split(" ").filter(t => t && t !== "pokemon");
+  // "#121" must match as a whole number — "#12" must not match "#121".
+  const numRe = number ? new RegExp("#" + escapeRe(number) + "(?![0-9])") : null;
+
+  let best = null, bestScore = 0;
+  for (const p of products) {
+    const pn = norm(p["product-name"]);
+    const cn = norm(p["console-name"]);
+    if (!cn.includes("pokemon")) continue;
+    let score = 0;
+    if (numRe) {
+      if (numRe.test(pn)) score += 5;
+      else continue; // wrong collector number = wrong card
+    }
+    if (cn.includes("japanese")) score -= 2; // the app is English cards only
+    if (nameTokens.length) {
+      score += nameTokens.filter(t => pn.includes(t)).length / nameTokens.length * 3;
+    }
+    if (setTokens.length) {
+      score += setTokens.filter(t => cn.includes(t)).length / setTokens.length * 3;
+    }
+    if (score > bestScore) { bestScore = score; best = p; }
+  }
+  return best;
+}
+
+async function pcJson(url) {
+  const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
+  if (!r.ok) throw new Error("PriceCharting responded with " + r.status);
+  return r.json();
+}
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=86400, stale-while-revalidate=43200");
@@ -24,35 +67,46 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "name parameter is required" });
   }
 
-  const q = ["pokemon", set, name, number ? "#" + number : ""].join(" ").replace(/\s+/g, " ").trim();
-  const cacheKey = q.toLowerCase();
-
+  const cacheKey = norm("pokemon " + set + " " + name + " " + number);
   const hit = memoryCache.get(cacheKey);
   if (hit && Date.now() - hit.at < TTL_MS) {
     return res.status(200).json(hit.value);
   }
 
-  let product;
+  const numberPart = number ? "#" + number : "";
+  const queries = [...new Set([
+    ["pokemon", set, name, numberPart].join(" "),
+    ["pokemon", name, numberPart].join(" "),
+    ["pokemon", set, name].join(" "),
+  ].map(q => q.replace(/\s+/g, " ").trim()))];
+
+  let chosen = null;
+  const tried = [];
   try {
-    const r = await fetch(
-      "https://www.pricecharting.com/api/product?t=" + token + "&q=" + encodeURIComponent(q)
-    );
-    if (!r.ok) {
-      return res.status(502).json({ error: "PriceCharting responded with " + r.status });
+    for (const q of queries) {
+      tried.push(q);
+      const j = await pcJson(PC + "/api/products?t=" + token + "&q=" + encodeURIComponent(q));
+      chosen = pickBest(j.products || [], name, number, set);
+      if (chosen) break;
     }
-    product = await r.json();
   } catch (err) {
     return res.status(502).json({ error: "Could not reach PriceCharting: " + err.message });
   }
 
   let value;
-  if (product.status === "error" || !product.id) {
-    value = { configured: true, found: false, query: q };
+  if (!chosen) {
+    value = { configured: true, found: false, query: tried.join(" | ") };
   } else {
+    let product;
+    try {
+      product = await pcJson(PC + "/api/product?t=" + token + "&id=" + encodeURIComponent(chosen.id));
+    } catch (err) {
+      return res.status(502).json({ error: "Could not reach PriceCharting: " + err.message });
+    }
     value = {
       configured: true,
       found: true,
-      query: q,
+      query: tried.join(" | "),
       match: {
         id: product.id,
         product: product["product-name"],

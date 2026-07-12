@@ -140,7 +140,7 @@ header p { color: var(--muted); font-size: 0.9rem; margin-top: 0.3rem; }
 }
 .sets-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 0.8rem;
   max-width: 1200px;
   margin: 0.6rem auto;
