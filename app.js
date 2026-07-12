@@ -193,7 +193,7 @@
     const q = [card.name, card.number + "/" + (card.set.printedTotal || ""), card.set.name, gradeLabel || ""]
       .join(" ").trim();
     return "https://www.ebay.com.au/sch/i.html?_nkw=" + encodeURIComponent(q) +
-           "&LH_Sold=1&LH_Complete=1";
+           "&LH_Sold=1&LH_Complete=1&_sop=13";
   }
 
   function priceChartingLink(card) {
