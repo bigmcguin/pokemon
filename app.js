@@ -568,14 +568,21 @@
   }
 
   // ---------- Tile rendering ----------
+  function tilePriceText(card) {
+    const p = bestMarketPrice(card);
+    if (p != null) return fmtUSD(p) + " raw";
+    const trend = card.cardmarket && card.cardmarket.prices && card.cardmarket.prices.trendPrice;
+    if (typeof trend === "number" && trend > 0) return fmtEUR(trend) + " trend";
+    return "no price data";
+  }
+
   function cardTileHTML(c) {
-    const price = bestMarketPrice(c);
     return `
       <div class="card-tile" data-id="${c.id}" tabindex="0" role="button">
         <img src="${c.images.small}" alt="${c.name}" loading="lazy">
         <div class="name">${c.name}</div>
         <div class="set">${c.set.name} · ${c.number}/${c.set.printedTotal || "?"} · ${c.rarity || "—"}</div>
-        <div class="price">${price != null ? fmtUSD(price) + " raw" : "no price data"}</div>
+        <div class="price">${tilePriceText(c)}</div>
       </div>`;
   }
 
@@ -826,31 +833,50 @@
       <div class="disclaimer">${note} Estimates = highest raw market price × your multiplier (edit in ⚙ Settings).</div>`;
   }
 
-  function gradedTableHTML(card, data) {
+  function gradedTableHTML(card, data, raw) {
+    const p = data.prices;
+    // New cards often have no recorded sales for some grades yet — fill the
+    // key ones (PSA 9/10) with multiplier estimates off the best known raw
+    // price, clearly marked as estimates.
+    const base = p.ungraded ?? raw;
+    const multOf = (key) => {
+      const m = settings.multipliers.find(x => x.key === key);
+      return m ? m.mult : null;
+    };
+    const est = (key) => {
+      const m = multOf(key);
+      return base != null && m != null ? base * m : null;
+    };
+
     const rows = [
-      ["Ungraded", data.prices.ungraded, ""],
-      ["Grade 9 (PSA 9)", data.prices.grade9, "PSA 9"],
-      ["Grade 9.5", data.prices.grade95, "9.5"],
-      ["PSA 10", data.prices.psa10, "PSA 10"],
-      ["BGS 10", data.prices.bgs10, "BGS 10"],
-      ["CGC 10", data.prices.cgc10, "CGC 10"],
-      ["SGC 10", data.prices.sgc10, "SGC 10"],
+      ["Ungraded", p.ungraded, "", false],
+      ["Grade 7", p.grade7, "PSA 7", false],
+      ["Grade 8", p.grade8, "PSA 8", false],
+      ["Grade 9 (PSA 9)", p.grade9 ?? est("psa9"), "PSA 9", p.grade9 == null],
+      ["Grade 9.5", p.grade95, "9.5", false],
+      ["PSA 10", p.psa10 ?? est("psa10"), "PSA 10", p.psa10 == null],
+      ["BGS 10", p.bgs10, "BGS 10", false],
+      ["CGC 10", p.cgc10, "CGC 10", false],
+      ["SGC 10", p.sgc10, "SGC 10", false],
     ].filter(([, v]) => v != null);
     if (!rows.length) return null;
+
+    const hasEstimates = rows.some(([, , , isEst]) => isEst);
     return `
       <div class="section-title">Graded prices — PriceCharting (USD)</div>
       <table>
         <tr><th>Grade</th><th class="num">Price</th><th>Check real sales</th></tr>
-        ${rows.map(([label, v, ebayLabel]) => `
+        ${rows.map(([label, v, ebayLabel, isEst]) => `
           <tr>
             <td>${label}</td>
-            <td class="num">${fmtUSD(v)}</td>
+            <td class="num">${fmtUSD(v)}${isEst ? ` <span class="est-tag">est.</span>` : ""}</td>
             <td><a class="grade-link" href="${ebaySoldLink(card, ebayLabel)}" target="_blank" rel="noopener">eBay sold ↗</a></td>
           </tr>`).join("")}
       </table>
       <div class="disclaimer">
         Matched to “${data.match.product}” (${data.match.set}) on PriceCharting — if that's the wrong
         card, use the PriceCharting link below to find the right one.
+        ${hasEstimates ? "Rows marked “est.” have no recorded sales for that grade yet, so they're multiplier estimates off the ungraded price — check the eBay sold link before relying on them." : ""}
       </div>`;
   }
 
@@ -869,9 +895,9 @@
           "PriceCharting had no match for this card, so these are estimates.");
         return;
       }
-      const table = gradedTableHTML(card, data);
+      const table = gradedTableHTML(card, data, raw);
       el.innerHTML = table || estimatesTableHTML(card, raw,
-        "PriceCharting matched this card but has no graded prices for it yet, so these are estimates.");
+        "PriceCharting matched this card but has no prices for it yet, so these are estimates.");
     } catch (err) {
       el.innerHTML = estimatesTableHTML(card, raw,
         "Live graded prices unavailable here, so these are estimates.");

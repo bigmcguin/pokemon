@@ -116,6 +116,8 @@ export default async function handler(req, res) {
       // cards they map to grades as below (values arrive in US cents).
       prices: {
         ungraded: cents(product["loose-price"]),
+        grade7: cents(product["cib-price"]),
+        grade8: cents(product["new-price"]),
         grade9: cents(product["graded-price"]),
         grade95: cents(product["box-only-price"]),
         psa10: cents(product["manual-only-price"]),
@@ -124,6 +126,7 @@ export default async function handler(req, res) {
         sgc10: cents(product["condition-18-price"]),
       },
     };
+    if (req.query.debug) value.upstream = product;
   }
 
   memoryCache.set(cacheKey, { at: Date.now(), value });

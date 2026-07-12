@@ -299,6 +299,7 @@ td.num, th.num { text-align: right; }
 }
 .links a:hover { border-color: var(--accent-2); }
 td a.grade-link { color: var(--accent-2); font-size: 0.78rem; text-decoration: none; }
+.est-tag { color: var(--muted); font-size: 0.7rem; font-style: italic; }
 td a.grade-link:hover { text-decoration: underline; }
 .loading-note { color: var(--muted); font-size: 0.85rem; padding: 0.4rem 0; }
 
