@@ -13,7 +13,18 @@ const memoryCache = new Map();
 const TTL_MS = 24 * 60 * 60 * 1000;
 const PC = "https://www.pricecharting.com";
 
-const cents = (v) => (typeof v === "number" && v > 0 ? v / 100 : null);
+// Prices normally arrive as integer US cents, but be liberal: accept numeric
+// strings ("43000") and dollar strings ("$430.00" / "430.00") too.
+const cents = (v) => {
+  if (typeof v === "string") {
+    const cleaned = v.replace(/[$,\s]/g, "");
+    if (!cleaned) return null;
+    const n = parseFloat(cleaned);
+    if (isNaN(n) || n <= 0) return null;
+    return cleaned.includes(".") ? n : n / 100;
+  }
+  return typeof v === "number" && v > 0 ? v / 100 : null;
+};
 const norm = (s) => String(s || "").toLowerCase()
   .replace(/[^a-z0-9#& ]+/g, " ").replace(/\s+/g, " ").trim();
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -53,7 +64,9 @@ async function pcJson(url) {
 }
 
 export default async function handler(req, res) {
-  res.setHeader("Cache-Control", "s-maxage=86400, stale-while-revalidate=43200");
+  res.setHeader("Cache-Control", req.query.debug
+    ? "no-store"
+    : "s-maxage=86400, stale-while-revalidate=43200");
 
   const token = process.env.PRICECHARTING_TOKEN;
   if (!token) {
@@ -82,11 +95,13 @@ export default async function handler(req, res) {
 
   let chosen = null;
   const tried = [];
+  let lastCandidates = [];
   try {
     for (const q of queries) {
       tried.push(q);
       const j = await pcJson(PC + "/api/products?t=" + token + "&q=" + encodeURIComponent(q));
-      chosen = pickBest(j.products || [], name, number, set);
+      lastCandidates = j.products || [];
+      chosen = pickBest(lastCandidates, name, number, set);
       if (chosen) break;
     }
   } catch (err) {
@@ -127,6 +142,11 @@ export default async function handler(req, res) {
       },
     };
     if (req.query.debug) value.upstream = product;
+  }
+  if (req.query.debug) {
+    value.candidates = lastCandidates.slice(0, 5).map(p =>
+      ({ id: p.id, product: p["product-name"], set: p["console-name"] }));
+    return res.status(200).json(value); // don't cache debug responses
   }
 
   memoryCache.set(cacheKey, { at: Date.now(), value });
