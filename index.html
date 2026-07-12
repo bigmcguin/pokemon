@@ -32,14 +32,6 @@
     </select>
   </label>
   <label id="audWrap" hidden><input type="checkbox" id="audToggle"> Show in A$</label>
-  <a id="settingsToggle">⚙ Settings</a>
-</div>
-
-<div id="settings">
-  <h3>Grade estimate settings</h3>
-  <label>Fallback multipliers (× raw price — only used when live graded prices are unavailable for a card)</label>
-  <div class="mult-grid" id="multGrid"></div>
-  <button class="save-btn" id="saveSettings">Save</button>
 </div>
 
 <div id="status"></div>
@@ -71,6 +63,16 @@
 <main id="setView" hidden>
   <a class="back-link" href="#">← All sets</a>
   <div class="set-header" id="setHeader"></div>
+  <div class="set-toolbar">
+    <label>Sort:
+      <select id="setSort">
+        <option value="number-asc">Card number (1 → end)</option>
+        <option value="number-desc">Card number (end → 1)</option>
+        <option value="price-desc">Value (high → low)</option>
+        <option value="price-asc">Value (low → high)</option>
+      </select>
+    </label>
+  </div>
   <div class="grid" id="setCards"></div>
 </main>
 

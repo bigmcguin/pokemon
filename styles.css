@@ -299,42 +299,31 @@ td.num, th.num { text-align: right; }
 }
 .links a:hover { border-color: var(--accent-2); }
 td a.grade-link { color: var(--accent-2); font-size: 0.78rem; text-decoration: none; }
-.est-tag { color: var(--muted); font-size: 0.7rem; font-style: italic; }
 td a.grade-link:hover { text-decoration: underline; }
 .loading-note { color: var(--muted); font-size: 0.85rem; padding: 0.4rem 0; }
 
-/* Settings panel */
-#settings {
-  display: none;
-  max-width: 640px;
-  margin: 1rem auto;
-  padding: 1rem;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-#settings.open { display: block; }
-#settings h3 { font-size: 1rem; margin-bottom: 0.6rem; }
-#settings label { display: block; color: var(--muted); font-size: 0.82rem; margin: 0.6rem 0 0.25rem; }
-#settings input {
-  width: 100%;
-  padding: 0.5rem 0.7rem;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--panel-2);
-  color: var(--text);
-}
-.mult-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 0.5rem; }
-#settings .save-btn {
-  margin-top: 0.9rem;
+.save-btn {
   padding: 0.55rem 1.2rem;
-  width: auto;
   border: none;
   border-radius: 8px;
   background: var(--accent-2);
   color: white;
   font-weight: 600;
   cursor: pointer;
+}
+.set-toolbar {
+  max-width: 1200px;
+  margin: 0.4rem auto 0;
+  padding: 0 1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.set-toolbar select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
 }
 footer {
   text-align: center;

@@ -7,15 +7,6 @@
   const INITIAL_SERIES_SHOWN = 3;
   const DAY_MS = 24 * 60 * 60 * 1000;
 
-  const DEFAULT_MULTIPLIERS = [
-    { key: "psa10",  label: "PSA 10",  mult: 4.0 },
-    { key: "psa9",   label: "PSA 9",   mult: 1.6 },
-    { key: "psa8",   label: "PSA 8",   mult: 1.1 },
-    { key: "bgs95",  label: "BGS 9.5", mult: 3.0 },
-    { key: "cgc10",  label: "CGC 10",  mult: 3.0 },
-    { key: "cgc95",  label: "CGC 9.5", mult: 1.5 },
-  ];
-
   const $ = (id) => document.getElementById(id);
   const todayStr = () => new Date().toISOString().slice(0, 10);
 
@@ -125,43 +116,6 @@
     displayAUD = $("audToggle").checked;
     store.set("pcv-aud", displayAUD);
     refreshCurrentView();
-  });
-
-  // ---------- Settings (localStorage) ----------
-  function loadSettings() {
-    const saved = store.get("pcv-settings", {});
-    return {
-      multipliers: DEFAULT_MULTIPLIERS.map(d => ({
-        ...d,
-        mult: (saved.multipliers && typeof saved.multipliers[d.key] === "number")
-          ? saved.multipliers[d.key] : d.mult,
-      })),
-    };
-  }
-  const settings = loadSettings();
-
-  function renderSettingsForm() {
-    $("multGrid").innerHTML = settings.multipliers.map(m => `
-      <div>
-        <label for="mult-${m.key}">${m.label}</label>
-        <input id="mult-${m.key}" type="number" step="0.1" min="0" value="${m.mult}">
-      </div>`).join("");
-  }
-
-  $("settingsToggle").addEventListener("click", () => {
-    $("settings").classList.toggle("open");
-    renderSettingsForm();
-  });
-
-  $("saveSettings").addEventListener("click", () => {
-    const multipliers = {};
-    settings.multipliers.forEach(m => {
-      const v = parseFloat($("mult-" + m.key).value);
-      if (!isNaN(v) && v >= 0) { m.mult = v; }
-      multipliers[m.key] = m.mult;
-    });
-    store.set("pcv-settings", { multipliers });
-    $("settings").classList.remove("open");
   });
 
   // ---------- Formatting helpers ----------
@@ -375,7 +329,7 @@
 
   function refreshCurrentView() {
     if (!$("setView").hidden) {
-      renderTiles($("setCards"), state.setCards);
+      renderTiles($("setCards"), sortedSetCards());
     } else if (!$("collectionView").hidden) {
       renderCollection();
     } else {
@@ -492,6 +446,20 @@
       </div>` : "";
   }
 
+  function sortedSetCards() {
+    const cards = state.setCards.slice();
+    const mode = $("setSort").value;
+    if (mode === "number-asc") cards.sort(byCollectorNumber);
+    else if (mode === "number-desc") cards.sort((a, b) => byCollectorNumber(b, a));
+    else if (mode === "price-desc") cards.sort((a, b) => (bestMarketPrice(b) ?? -1) - (bestMarketPrice(a) ?? -1));
+    else if (mode === "price-asc") cards.sort((a, b) => (bestMarketPrice(a) ?? Infinity) - (bestMarketPrice(b) ?? Infinity));
+    return cards;
+  }
+
+  $("setSort").addEventListener("change", () => {
+    if (state.setCards.length) renderTiles($("setCards"), sortedSetCards());
+  });
+
   async function openSet(setId) {
     showView("set");
     renderSetHeader(setId);
@@ -501,8 +469,8 @@
     try {
       const cards = await fetchAllSetCards(setId);
       state.setCards = cards;
-      setStatus(`${cards.length} cards — in collector-number order. Tap a card for prices.`);
-      renderTiles($("setCards"), cards);
+      setStatus(`${cards.length} cards. Tap a card for prices.`);
+      renderTiles($("setCards"), sortedSetCards());
     } catch (err) {
       $("setCards").innerHTML = "";
       setStatus("Couldn't load this set (" + err.message + "). Go back and try again.", true);
@@ -806,92 +774,70 @@
     return res.json();
   }
 
-  function estimatesTableHTML(card, raw, note) {
-    if (raw == null) return `<div class="disclaimer">${note}</div>`;
-    const rows = settings.multipliers.map(m => `
-      <tr>
-        <td>${m.label}</td>
-        <td class="num">×${m.mult}</td>
-        <td class="num">${fmtUSD(raw * m.mult)}</td>
-        <td><a class="grade-link" href="${ebaySoldLink(card, m.label)}" target="_blank" rel="noopener">eBay sold ↗</a></td>
-      </tr>`).join("");
+  function noGradedHTML(card, note) {
     return `
-      <div class="section-title">Estimated graded values</div>
-      <table>
-        <tr><th>Grade</th><th class="num">Multiplier</th><th class="num">Estimate</th><th>Check real sales</th></tr>
-        ${rows}
-      </table>
-      <div class="disclaimer">${note} Estimates = highest raw market price × your multiplier (edit in ⚙ Settings).</div>`;
+      <div class="section-title">Graded prices</div>
+      <div class="disclaimer">${note}</div>
+      <div class="links">
+        <a href="${ebaySoldLink(card, "PSA 9")}" target="_blank" rel="noopener">PSA 9 sold ↗</a>
+        <a href="${ebaySoldLink(card, "PSA 10")}" target="_blank" rel="noopener">PSA 10 sold ↗</a>
+        <a href="${ebaySoldLink(card, "CGC")}" target="_blank" rel="noopener">CGC sold ↗</a>
+      </div>`;
   }
 
-  function gradedTableHTML(card, data, raw) {
+  function gradedTableHTML(card, data) {
     const p = data.prices;
-    // New cards often have no recorded sales for some grades yet — fill the
-    // key ones (PSA 9/10) with multiplier estimates off the best known raw
-    // price, clearly marked as estimates.
-    const base = p.ungraded ?? raw;
-    const multOf = (key) => {
-      const m = settings.multipliers.find(x => x.key === key);
-      return m ? m.mult : null;
-    };
-    const est = (key) => {
-      const m = multOf(key);
-      return base != null && m != null ? base * m : null;
-    };
-
     const rows = [
-      ["Ungraded", p.ungraded, "", false],
-      ["Grade 7", p.grade7, "PSA 7", false],
-      ["Grade 8", p.grade8, "PSA 8", false],
-      ["Grade 9 (PSA 9)", p.grade9 ?? est("psa9"), "PSA 9", p.grade9 == null],
-      ["Grade 9.5", p.grade95, "9.5", false],
-      ["PSA 10", p.psa10 ?? est("psa10"), "PSA 10", p.psa10 == null],
-      ["BGS 10", p.bgs10, "BGS 10", false],
-      ["CGC 10", p.cgc10, "CGC 10", false],
-      ["SGC 10", p.sgc10, "SGC 10", false],
+      ["Ungraded", p.ungraded, ""],
+      ["Grade 7", p.grade7, "PSA 7"],
+      ["Grade 8", p.grade8, "PSA 8"],
+      ["Grade 9 (PSA 9)", p.grade9, "PSA 9"],
+      ["Grade 9.5", p.grade95, "9.5"],
+      ["PSA 10", p.psa10, "PSA 10"],
+      ["BGS 10", p.bgs10, "BGS 10"],
+      ["CGC 10", p.cgc10, "CGC 10"],
+      ["SGC 10", p.sgc10, "SGC 10"],
     ].filter(([, v]) => v != null);
     if (!rows.length) return null;
 
-    const hasEstimates = rows.some(([, , , isEst]) => isEst);
     return `
       <div class="section-title">Graded prices — PriceCharting (USD)</div>
       <table>
         <tr><th>Grade</th><th class="num">Price</th><th>Check real sales</th></tr>
-        ${rows.map(([label, v, ebayLabel, isEst]) => `
+        ${rows.map(([label, v, ebayLabel]) => `
           <tr>
             <td>${label}</td>
-            <td class="num">${fmtUSD(v)}${isEst ? ` <span class="est-tag">est.</span>` : ""}</td>
+            <td class="num">${fmtUSD(v)}</td>
             <td><a class="grade-link" href="${ebaySoldLink(card, ebayLabel)}" target="_blank" rel="noopener">eBay sold ↗</a></td>
           </tr>`).join("")}
       </table>
       <div class="disclaimer">
         Matched to “${data.match.product}” (${data.match.set}) on PriceCharting — if that's the wrong
         card, use the PriceCharting link below to find the right one.
-        ${hasEstimates ? "Rows marked “est.” have no recorded sales for that grade yet, so they're multiplier estimates off the ungraded price — check the eBay sold link before relying on them." : ""}
       </div>`;
   }
 
-  async function fillGradedSection(card, raw) {
+  async function fillGradedSection(card) {
     const el = $("gradedSection");
     if (!el) return;
     try {
       const data = await fetchGradedPrices(card);
       if (!data.configured) {
-        el.innerHTML = estimatesTableHTML(card, raw,
-          "Live graded prices aren't set up yet (add a PriceCharting token on Vercel).");
+        el.innerHTML = noGradedHTML(card,
+          "Live graded prices aren't set up yet (add a PriceCharting token on Vercel). Check recent graded sales on eBay:");
         return;
       }
       if (!data.found) {
-        el.innerHTML = estimatesTableHTML(card, raw,
-          "PriceCharting had no match for this card, so these are estimates.");
+        el.innerHTML = noGradedHTML(card,
+          "PriceCharting doesn't have this card yet. Check recent graded sales on eBay:");
         return;
       }
-      const table = gradedTableHTML(card, data, raw);
-      el.innerHTML = table || estimatesTableHTML(card, raw,
-        "PriceCharting matched this card but has no prices for it yet, so these are estimates.");
+      const table = gradedTableHTML(card, data);
+      el.innerHTML = table || noGradedHTML(card,
+        "PriceCharting matched this card but has no recorded prices yet. Check recent graded sales on eBay:");
     } catch (err) {
-      el.innerHTML = estimatesTableHTML(card, raw,
-        "Live graded prices unavailable here, so these are estimates.");
+      el.innerHTML = noGradedHTML(card,
+        "Couldn't load graded prices just now — reopen the card to retry, or check eBay:");
     }
   }
 
@@ -959,7 +905,6 @@
   }
 
   function renderDetail(card) {
-    const raw = bestMarketPrice(card);
     const tcg = card.tcgplayer;
 
     let variantRows = "";
@@ -1009,7 +954,7 @@
 
     renderCollControls(card);
     renderHistorySection(card);
-    fillGradedSection(card, raw);
+    fillGradedSection(card);
 
     $("copyLink").addEventListener("click", async (e) => {
       e.preventDefault();

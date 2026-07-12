@@ -14,10 +14,11 @@ prices (PSA / BGS / CGC / SGC).
 - **Raw market prices** from the free [Pokémon TCG API](https://pokemontcg.io):
   TCGPlayer low/market/high (USD) per variant
 - **Real graded prices** from [PriceCharting](https://www.pricecharting.com)
-  (Ungraded, Grade 9, 9.5, PSA 10, BGS 10, CGC 10, SGC 10) via a small backend that
-  keeps the paid API token secret and caches results for 24 hours. If the token
-  isn't configured (or a card has no match), the app falls back to multiplier-based
-  estimates you can tune in ⚙ Settings.
+  (Ungraded, Grades 7–9.5, PSA 10, BGS 10, CGC 10, SGC 10) via a small backend that
+  keeps the paid API token secret and caches results for 24 hours. When a grade has
+  no recorded data, the app links straight to eBay sold listings instead of guessing.
+- **Set sorting** — order any set by card number (either direction) or value
+  (high→low / low→high)
 - **One-click reality checks** — every grade links to eBay AU sold listings for
   that exact card and grade
 - **My collection** — add cards with quantities; see total value, a value-over-time
