@@ -10,9 +10,28 @@
 //   the ID and sends it back as ?pcid=, so later lookups are a single
 //   fetch-by-ID — search results can shift, IDs don't.
 
+import { getSql } from "../lib/db.js";
+
 const memoryCache = new Map();
 const TTL_MS = 24 * 60 * 60 * 1000;
 const PC = "https://www.pricecharting.com";
+
+// The daily price-guide import (api/refresh-guide.js) is the preferred
+// source: complete graded data, no rate limits. Returns null when the guide
+// DB isn't configured or doesn't have the product.
+async function guideLookup(id) {
+  const sqlp = getSql();
+  if (!sqlp) return null;
+  try {
+    const sql = await sqlp;
+    const rows = await sql`SELECT * FROM price_guide WHERE id = ${String(id)}`;
+    return rows[0] || null;
+  } catch (err) {
+    return null; // table missing / db hiccup — fall through to the live API
+  }
+}
+
+const centsInt = (v) => (typeof v === "number" && v > 0 ? v / 100 : null);
 
 // ---------- rate limiter: ≥1.1s between upstream calls (per instance) ----------
 const RATE_MS = 1100;
@@ -138,27 +157,54 @@ export default async function handler(req, res) {
   }
 
   let product = null;
+  let row = null;
   try {
     if (pcidParam) {
-      product = await fetchProduct(pcidParam);
-      tried.push("pcid:" + pcidParam);
+      row = await guideLookup(pcidParam);
+      if (!row) {
+        product = await fetchProduct(pcidParam);
+        tried.push("pcid:" + pcidParam);
+      }
     }
-    if (!product && name) {
+    if (!row && !product && name) {
       // No stored ID (or it went stale) — resolve via catalogue search once.
       const id = await resolveIdBySearch();
-      if (id) product = await fetchProduct(id);
+      if (id) {
+        row = await guideLookup(id);
+        if (!row) product = await fetchProduct(id);
+      }
     }
   } catch (err) {
     return res.status(502).json({ error: "Could not reach PriceCharting: " + err.message });
   }
 
   let value;
-  if (!product) {
-    value = { configured: true, found: false, query: tried.join(" | ") };
-  } else {
+  if (row) {
     value = {
       configured: true,
       found: true,
+      source: "price-guide",
+      guideUpdated: row.updated_at,
+      query: tried.join(" | ") || "pcid:" + pcidParam,
+      match: { id: String(row.id), product: row.product, set: row.set_name },
+      prices: {
+        ungraded: centsInt(row.loose),
+        grade7: centsInt(row.grade7),
+        grade8: centsInt(row.grade8),
+        grade9: centsInt(row.grade9),
+        grade95: centsInt(row.grade95),
+        psa10: centsInt(row.psa10),
+        bgs10: centsInt(row.bgs10),
+        cgc10: centsInt(row.cgc10),
+        sgc10: centsInt(row.sgc10),
+      },
+    };
+    if (req.query.debug) value.upstream = row;
+  } else if (product) {
+    value = {
+      configured: true,
+      found: true,
+      source: "live-api",
       query: tried.join(" | "),
       match: {
         id: String(product.id),
@@ -181,6 +227,8 @@ export default async function handler(req, res) {
       },
     };
     if (req.query.debug) value.upstream = product;
+  } else {
+    value = { configured: true, found: false, query: tried.join(" | ") };
   }
   if (req.query.debug) {
     value.candidates = lastCandidates.slice(0, 5).map(p =>

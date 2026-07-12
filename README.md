@@ -48,8 +48,30 @@ prices (PSA / BGS / CGC / SGC).
 Your site is live at `https://<project>.vercel.app` — open it on your phone and
 use "Add to Home Screen" for an app-like icon.
 
-Without the token everything still works; the graded table just shows estimates
-instead of live PriceCharting data.
+Without the token everything still works; the graded section just links to eBay
+sold listings instead of showing PriceCharting data.
+
+## Optional: daily price-guide import (recommended)
+
+Instead of per-card API lookups, the app can import PriceCharting's full Pokémon
+price guide (a premium CSV download) into a free Postgres database once a day.
+Graded prices then come from the database — complete data, instant, no API rate
+limits. Setup:
+
+1. In Vercel: project → **Storage** tab → **Create Database** → **Neon (Postgres)**,
+   free plan, and connect it to this project (this adds a `DATABASE_URL` env var)
+2. Add an env var `CRON_SECRET` set to any long random string
+3. Redeploy, then run the first import by visiting
+   `https://<your-app>.vercel.app/api/refresh-guide?secret=<your CRON_SECRET>`
+   (takes a minute or two; responds with the imported row count)
+4. Done — a Vercel cron re-imports daily at 18:00 UTC (4 am AEST)
+
+If the import complains about the CSV URL, log in to PriceCharting, copy the
+Pokémon CSV link from their price-guide download page, and set it as a
+`PRICECHARTING_CSV_URL` env var.
+
+The card view still falls back to the live API (rate-limited to 1 req/s) for
+anything the guide doesn't cover, so the database is strictly optional.
 
 ## Project layout
 
@@ -61,6 +83,8 @@ instead of live PriceCharting data.
 | `api/prices.js` | Vercel serverless function — PriceCharting proxy with 24 h edge caching |
 | `api/tcg.js` | Vercel serverless function — cached proxy for the Pokémon TCG API (6–24 h) |
 | `api/fx.js` | Vercel serverless function — daily USD/EUR→AUD rates (Frankfurter/ECB) |
+| `api/refresh-guide.js` | Daily cron — imports PriceCharting's Pokémon price-guide CSV into Postgres |
+| `lib/` | Shared helpers (CSV parsing, database connection) |
 | `.claude/skills/` | Design skills used by Claude Code when working on this repo |
 
 ## Notes

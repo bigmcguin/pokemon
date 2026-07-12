@@ -3,5 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Search Pokémon card values by name or set, with graded prices from PriceCharting"
+  "description": "Search Pokémon card values by name or set, with graded prices from PriceCharting",
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4"
+  }
 }
