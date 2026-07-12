@@ -12,7 +12,7 @@ prices (PSA / BGS / CGC / SGC).
   first, with a "Show all sets" button), with a set-search box that filters as you
   type; open a set to see all its cards from #1 onwards in collector-number order
 - **Raw market prices** from the free [Pokémon TCG API](https://pokemontcg.io):
-  TCGPlayer low/market/high (USD) per variant, plus Cardmarket trend and averages (EUR)
+  TCGPlayer low/market/high (USD) per variant
 - **Real graded prices** from [PriceCharting](https://www.pricecharting.com)
   (Ungraded, Grade 9, 9.5, PSA 10, BGS 10, CGC 10, SGC 10) via a small backend that
   keeps the paid API token secret and caches results for 24 hours. If the token

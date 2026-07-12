@@ -3,7 +3,7 @@
 
   const DIRECT_API = "https://api.pokemontcg.io/v2/";
   // Only request the fields the app uses — cuts payloads by more than half.
-  const CARD_FIELDS = "id,name,number,rarity,set,images,tcgplayer,cardmarket";
+  const CARD_FIELDS = "id,name,number,rarity,set,images,tcgplayer";
   const INITIAL_SERIES_SHOWN = 3;
   const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -172,12 +172,6 @@
     if (displayAUD && state.fx) return "≈A$" + money(n * state.fx.usdAud);
     return "US$" + money(n);
   }
-  function fmtEUR(n) {
-    if (n == null) return "—";
-    if (displayAUD && state.fx) return "≈A$" + money(n * state.fx.eurAud);
-    return "€" + money(n);
-  }
-
   function bestMarketPrice(card) {
     const prices = card.tcgplayer && card.tcgplayer.prices;
     if (!prices) return null;
@@ -570,10 +564,7 @@
   // ---------- Tile rendering ----------
   function tilePriceText(card) {
     const p = bestMarketPrice(card);
-    if (p != null) return fmtUSD(p) + " raw";
-    const trend = card.cardmarket && card.cardmarket.prices && card.cardmarket.prices.trendPrice;
-    if (typeof trend === "number" && trend > 0) return fmtEUR(trend) + " trend";
-    return "no price data";
+    return p != null ? fmtUSD(p) + " raw" : "no price data";
   }
 
   function cardTileHTML(c) {
@@ -970,7 +961,6 @@
   function renderDetail(card) {
     const raw = bestMarketPrice(card);
     const tcg = card.tcgplayer;
-    const cm = card.cardmarket;
 
     let variantRows = "";
     if (tcg && tcg.prices) {
@@ -1001,18 +991,6 @@
             ${variantRows}
           </table>` : `<div class="section-title">No TCGPlayer price data for this card.</div>`}
 
-        ${cm && cm.prices ? `
-          <div class="section-title">Cardmarket (EUR)${cm.updatedAt ? ", updated " + cm.updatedAt : ""}</div>
-          <table>
-            <tr><th>Trend</th><th class="num">7-day avg</th><th class="num">30-day avg</th><th class="num">Low</th></tr>
-            <tr>
-              <td>${fmtEUR(cm.prices.trendPrice)}</td>
-              <td class="num">${fmtEUR(cm.prices.avg7)}</td>
-              <td class="num">${fmtEUR(cm.prices.avg30)}</td>
-              <td class="num">${fmtEUR(cm.prices.lowPrice)}</td>
-            </tr>
-          </table>` : ""}
-
         <div id="gradedSection">
           <div class="loading-note">Loading graded prices…</div>
         </div>
@@ -1022,7 +1000,6 @@
         <div class="links">
           <a href="#" id="copyLink">Copy share link</a>
           ${tcg && tcg.url ? `<a href="${tcg.url}" target="_blank" rel="noopener">TCGPlayer ↗</a>` : ""}
-          ${cm && cm.url ? `<a href="${cm.url}" target="_blank" rel="noopener">Cardmarket ↗</a>` : ""}
           <a href="${ebaySoldLink(card, "")}" target="_blank" rel="noopener">eBay AU sold listings ↗</a>
           <a href="${priceChartingLink(card)}" target="_blank" rel="noopener">PriceCharting ↗</a>
           <a href="https://www.psacard.com/pop" target="_blank" rel="noopener">PSA pop report ↗</a>
