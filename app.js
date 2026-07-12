@@ -41,6 +41,7 @@
   let collHistory = store.get("pcv-coll-history", []);      // [{d, total}] in USD
   let recent = store.get("pcv-recent", []);                 // [card snapshots]
   let displayAUD = store.get("pcv-aud", false);
+  let pcids = store.get("pcv-pcids", {});                   // cardId -> PriceCharting product id
 
   function indexCards(cards) {
     for (const c of cards) if (c && c.id) state.cardIndex.set(c.id, c);
@@ -763,15 +764,23 @@
 
   // ---------- Graded prices (via our Vercel backend) ----------
   async function fetchGradedPrices(card) {
+    const known = pcids[card.id];
     const u = "/api/prices" +
       "?name=" + encodeURIComponent(card.name) +
       "&set=" + encodeURIComponent(card.set.name) +
-      "&number=" + encodeURIComponent(card.number);
+      "&number=" + encodeURIComponent(card.number) +
+      (known ? "&pcid=" + encodeURIComponent(known) : "");
     const res = await fetch(u, { headers: { "Accept": "application/json" } });
     if (!res.ok) throw new Error("backend responded with " + res.status);
     const ct = res.headers.get("content-type") || "";
     if (!ct.includes("json")) throw new Error("no backend on this host");
-    return res.json();
+    const data = await res.json();
+    // Remember the resolved product ID so future lookups skip the search step.
+    if (data && data.found && data.match && data.match.id && pcids[card.id] !== data.match.id) {
+      pcids[card.id] = data.match.id;
+      store.set("pcv-pcids", pcids);
+    }
+    return data;
   }
 
   function noGradedHTML(card, note) {

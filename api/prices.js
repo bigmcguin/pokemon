@@ -1,17 +1,33 @@
 // Serverless proxy for the PriceCharting API.
-// The paid token stays in the PRICECHARTING_TOKEN environment variable on
-// Vercel — it is never sent to the browser. Responses are cached at Vercel's
-// edge for 24 hours (card prices update daily at most), so repeat lookups of
-// the same card cost zero API quota.
 //
-// Matching strategy: PriceCharting's single-best-match endpoint is strict, so
-// instead we search their catalogue (/api/products) with a few query
-// variations and pick the right product ourselves by comparing the card
-// number, name and set. Only then do we fetch that product's prices.
+// - The paid token stays in the PRICECHARTING_TOKEN environment variable on
+//   Vercel — it is never sent to the browser.
+// - Responses are cached at Vercel's edge for 24 hours, so repeat lookups of
+//   the same card cost zero upstream quota.
+// - Upstream calls are throttled to ~1 per second (PriceCharting's limit;
+//   exceeding it gets the account blocked).
+// - Cards are resolved to a PriceCharting product ID once; the browser stores
+//   the ID and sends it back as ?pcid=, so later lookups are a single
+//   fetch-by-ID — search results can shift, IDs don't.
 
 const memoryCache = new Map();
 const TTL_MS = 24 * 60 * 60 * 1000;
 const PC = "https://www.pricecharting.com";
+
+// ---------- rate limiter: ≥1.1s between upstream calls (per instance) ----------
+const RATE_MS = 1100;
+let queueTail = Promise.resolve();
+let nextSlot = 0;
+function rateLimited(fn) {
+  const run = queueTail.then(async () => {
+    const wait = nextSlot - Date.now();
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    nextSlot = Date.now() + RATE_MS;
+    return fn();
+  });
+  queueTail = run.catch(() => {});
+  return run;
+}
 
 // Prices normally arrive as integer US cents, but be liberal: accept numeric
 // strings ("43000") and dollar strings ("$430.00" / "430.00") too.
@@ -25,6 +41,7 @@ const cents = (v) => {
   }
   return typeof v === "number" && v > 0 ? v / 100 : null;
 };
+
 const norm = (s) => String(s || "").toLowerCase()
   .replace(/[^a-z0-9#& ]+/g, " ").replace(/\s+/g, " ").trim();
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -58,15 +75,17 @@ function pickBest(products, name, number, setName) {
 }
 
 async function pcJson(url) {
-  const r = await fetch(url, {
-    signal: AbortSignal.timeout(12000),
-    headers: {
-      "Accept": "application/json",
-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
-    },
+  return rateLimited(async () => {
+    const r = await fetch(url, {
+      signal: AbortSignal.timeout(12000),
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+      },
+    });
+    if (!r.ok) throw new Error("PriceCharting responded with " + r.status);
+    return r.json();
   });
-  if (!r.ok) throw new Error("PriceCharting responded with " + r.status);
-  return r.json();
 }
 
 export default async function handler(req, res) {
@@ -82,59 +101,73 @@ export default async function handler(req, res) {
   const name = (req.query.name || "").toString().trim();
   const set = (req.query.set || "").toString().trim();
   const number = (req.query.number || "").toString().split("/")[0].trim();
-  if (!name) {
-    return res.status(400).json({ error: "name parameter is required" });
+  const pcidParam = (req.query.pcid || "").toString().trim();
+  if (!name && !pcidParam) {
+    return res.status(400).json({ error: "name or pcid parameter is required" });
   }
 
-  const cacheKey = norm("pokemon " + set + " " + name + " " + number);
+  const cacheKey = pcidParam ? "id:" + pcidParam : norm("pokemon " + set + " " + name + " " + number);
   const hit = memoryCache.get(cacheKey);
-  if (hit && Date.now() - hit.at < TTL_MS) {
+  if (hit && Date.now() - hit.at < TTL_MS && !req.query.debug) {
     return res.status(200).json(hit.value);
   }
 
-  const numberPart = number ? "#" + number : "";
-  const queries = [...new Set([
-    ["pokemon", set, name, numberPart].join(" "),
-    ["pokemon", name, numberPart].join(" "),
-    ["pokemon", set, name].join(" "),
-  ].map(q => q.replace(/\s+/g, " ").trim()))];
-
-  let chosen = null;
   const tried = [];
   let lastCandidates = [];
-  try {
+
+  async function resolveIdBySearch() {
+    const numberPart = number ? "#" + number : "";
+    const queries = [...new Set([
+      ["pokemon", set, name, numberPart].join(" "),
+      ["pokemon", name, numberPart].join(" "),
+      ["pokemon", set, name].join(" "),
+    ].map(q => q.replace(/\s+/g, " ").trim()))];
     for (const q of queries) {
       tried.push(q);
       const j = await pcJson(PC + "/api/products?t=" + token + "&q=" + encodeURIComponent(q));
       lastCandidates = j.products || [];
-      chosen = pickBest(lastCandidates, name, number, set);
-      if (chosen) break;
+      const chosen = pickBest(lastCandidates, name, number, set);
+      if (chosen) return chosen.id;
+    }
+    return null;
+  }
+
+  async function fetchProduct(id) {
+    const p = await pcJson(PC + "/api/product?t=" + token + "&id=" + encodeURIComponent(id));
+    return (p && p.id && p.status !== "error") ? p : null;
+  }
+
+  let product = null;
+  try {
+    if (pcidParam) {
+      product = await fetchProduct(pcidParam);
+      tried.push("pcid:" + pcidParam);
+    }
+    if (!product && name) {
+      // No stored ID (or it went stale) — resolve via catalogue search once.
+      const id = await resolveIdBySearch();
+      if (id) product = await fetchProduct(id);
     }
   } catch (err) {
     return res.status(502).json({ error: "Could not reach PriceCharting: " + err.message });
   }
 
   let value;
-  if (!chosen) {
+  if (!product) {
     value = { configured: true, found: false, query: tried.join(" | ") };
   } else {
-    let product;
-    try {
-      product = await pcJson(PC + "/api/product?t=" + token + "&id=" + encodeURIComponent(chosen.id));
-    } catch (err) {
-      return res.status(502).json({ error: "Could not reach PriceCharting: " + err.message });
-    }
     value = {
       configured: true,
       found: true,
       query: tried.join(" | "),
       match: {
-        id: product.id,
+        id: String(product.id),
         product: product["product-name"],
         set: product["console-name"],
       },
       // PriceCharting field names are inherited from video games; for trading
-      // cards they map to grades as below (values arrive in US cents).
+      // cards they map to grades as below (values arrive in US cents). Fields
+      // are absent when a grade has no sales — cents() returns null for those.
       prices: {
         ungraded: cents(product["loose-price"]),
         grade7: cents(product["cib-price"]),
