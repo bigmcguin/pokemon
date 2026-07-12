@@ -1,43 +1,58 @@
 # Pokémon Card Value Search
 
-A single-file web app for quickly looking up Pokémon card values, including estimated
-prices for different grades (PSA, BGS, CGC).
+A web app for looking up English Pokémon card values — search by name, browse
+complete sets card-by-card, and see both raw market prices and real graded
+prices (PSA / BGS / CGC / SGC).
 
-## What it does
+## Features
 
-- **Search any card** by name (e.g. `Charizard`), or name + card number (e.g. `Umbreon 197`)
-- **Live raw market prices** from the free [Pokémon TCG API](https://pokemontcg.io):
-  - TCGPlayer low / market / high in USD, per variant (holofoil, reverse holo, 1st edition, …)
-  - Cardmarket trend, 7-day and 30-day averages in EUR
-- **Estimated graded values** for PSA 10 / 9 / 8, BGS 9.5, CGC 10 / 9.5, calculated from
-  the raw market price using multipliers you can customise in ⚙ Settings
-- **One-click links to real sold prices** — every grade row links straight to eBay AU
-  sold/completed listings for that exact card and grade, plus links to TCGPlayer,
-  Cardmarket, PriceCharting and the PSA population report
+- **Search any card** by name (e.g. `Charizard`) or name + number (e.g. `Umbreon 197`)
+- **Browse sets** — every English set grouped by series; open one to see all its
+  cards from #1 onwards in collector-number order, with images and prices
+- **Raw market prices** from the free [Pokémon TCG API](https://pokemontcg.io):
+  TCGPlayer low/market/high (USD) per variant, plus Cardmarket trend and averages (EUR)
+- **Real graded prices** from [PriceCharting](https://www.pricecharting.com)
+  (Ungraded, Grade 9, 9.5, PSA 10, BGS 10, CGC 10, SGC 10) via a small backend that
+  keeps the paid API token secret and caches results for 24 hours. If the token
+  isn't configured (or a card has no match), the app falls back to multiplier-based
+  estimates you can tune in ⚙ Settings.
+- **One-click reality checks** — every grade links to eBay AU sold listings for
+  that exact card and grade
 
-## How to run it
+## Deploying on Vercel
 
-No install, no build tools — it's one HTML file.
+1. Go to [vercel.com](https://vercel.com), sign up (free) with your GitHub account
+2. Click **Add New → Project** and import the `pokemon` repository, then **Deploy**
+   (no build settings needed — Vercel auto-detects everything)
+3. To enable real graded prices, subscribe to
+   [PriceCharting's API](https://www.pricecharting.com/api-documentation) and copy
+   your API token, then in Vercel go to your project's
+   **Settings → Environment Variables** and add:
+   - Name: `PRICECHARTING_TOKEN`
+   - Value: *your token*
+4. Redeploy (Deployments → ⋯ on the latest → Redeploy) so the variable takes effect
 
-**Option 1 — open it directly:** download `index.html` and double-click it. That's it.
+Your site is live at `https://<project>.vercel.app` — open it on your phone and
+use "Add to Home Screen" for an app-like icon.
 
-**Option 2 — host it free on GitHub Pages:**
-1. In this repo on GitHub, go to **Settings → Pages**
-2. Under "Build and deployment", set Source to **Deploy from a branch**, pick your branch
-   and `/ (root)`, then save
-3. Your site will be live at `https://<your-username>.github.io/pokemon/` in a minute or two —
-   bookmark it on your phone and it works like an app
+Without the token everything still works; the graded table just shows estimates
+instead of live PriceCharting data.
 
-## Optional: free API key
+## Project layout
 
-The Pokémon TCG API works without a key but is rate-limited. If searches start failing,
-grab a free key at [dev.pokemontcg.io](https://dev.pokemontcg.io) and paste it into
-⚙ Settings — it's saved in your browser only.
+| File | Purpose |
+|---|---|
+| `index.html` | Page shell |
+| `styles.css` | Styling |
+| `app.js` | Search, set browser, card detail, settings |
+| `api/prices.js` | Vercel serverless function — PriceCharting proxy with 24 h edge caching |
 
-## About the graded estimates
+## Notes
 
-No free service publishes graded card prices, so the app estimates them as
-`raw market price × multiplier`. The defaults (e.g. PSA 10 ≈ 4×) are rough,
-era-dependent guides — vintage and low-population cards can be far higher, bulk modern
-far lower. Adjust the multipliers in ⚙ Settings to suit what you collect, and always
-check the eBay sold links (the real market) before buying or selling.
+- Card database is English-language cards only (that's all the Pokémon TCG API covers)
+- The optional Pokémon TCG API key in ⚙ Settings raises that API's rate limit —
+  free at [dev.pokemontcg.io](https://dev.pokemontcg.io). It's stored in the
+  visitor's browser only.
+- The PriceCharting token is **never** exposed to visitors — it lives in a Vercel
+  environment variable and all calls go through `api/prices.js`
+- Check PriceCharting's API terms regarding attribution when displaying their data publicly

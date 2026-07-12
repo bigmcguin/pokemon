@@ -1,0 +1,7 @@
+{
+  "name": "pokemon-card-values",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Search Pokémon card values by name or set, with graded prices from PriceCharting"
+}
