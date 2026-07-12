@@ -20,6 +20,17 @@ prices (PSA / BGS / CGC / SGC).
   estimates you can tune in ⚙ Settings.
 - **One-click reality checks** — every grade links to eBay AU sold listings for
   that exact card and grade
+- **My collection** — add cards with quantities; see total value, a value-over-time
+  chart, and refresh all prices in one tap (auto-refreshes daily). Stored in the
+  browser on your device.
+- **AUD display toggle** — show all prices in approximate Australian dollars using
+  daily ECB exchange rates
+- **Shareable card links** — every card has its own URL (`…#card=sv8-130`); a
+  "Copy share link" button uses the native share sheet on phones
+- **Home page rows** — top-value cards from the latest set, plus your recently
+  viewed cards
+- **Price history** — the app records a daily price point for cards you view or
+  collect (on your device) and charts them once there are two or more days of data
 
 ## Deploying on Vercel
 
@@ -48,6 +59,8 @@ instead of live PriceCharting data.
 | `app.js` | Search, set browser, card detail, settings |
 | `api/prices.js` | Vercel serverless function — PriceCharting proxy with 24 h edge caching |
 | `api/tcg.js` | Vercel serverless function — cached proxy for the Pokémon TCG API (6–24 h) |
+| `api/fx.js` | Vercel serverless function — daily USD/EUR→AUD rates (Frankfurter/ECB) |
+| `.claude/skills/` | Design skills used by Claude Code when working on this repo |
 
 ## Notes
 

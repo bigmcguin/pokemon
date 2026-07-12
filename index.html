@@ -11,6 +11,10 @@
 <header>
   <h1 id="homeLink">Pokémon <span>Card Value</span> Search</h1>
   <p>Search any English card, browse full sets, see market and graded prices</p>
+  <nav class="top-nav">
+    <a href="#">Search &amp; sets</a>
+    <a href="#collection">My collection <span class="count-badge" id="collCount">0</span></a>
+  </nav>
 </header>
 
 <div class="search-bar">
@@ -27,6 +31,7 @@
       <option value="name">Name (A–Z)</option>
     </select>
   </label>
+  <label id="audWrap" hidden><input type="checkbox" id="audToggle"> Show in A$</label>
   <a id="settingsToggle">⚙ Settings</a>
 </div>
 
@@ -39,9 +44,20 @@
 
 <div id="status"></div>
 
-<!-- Home: search results + set browser -->
+<!-- Home: search results, trending, recently viewed, set browser -->
 <main id="homeView">
   <div class="grid" id="results"></div>
+
+  <section id="trendingSection" hidden>
+    <h2 class="row-title" id="trendingTitle"></h2>
+    <div class="h-scroll" id="trendingRow"></div>
+  </section>
+
+  <section id="recentSection" hidden>
+    <h2 class="row-title">Recently viewed</h2>
+    <div class="h-scroll" id="recentRow"></div>
+  </section>
+
   <section id="setsSection">
     <h2 class="browse-title">Browse sets</h2>
     <div class="set-search-wrap">
@@ -58,6 +74,19 @@
   <div class="grid" id="setCards"></div>
 </main>
 
+<!-- My collection -->
+<main id="collectionView" hidden>
+  <div class="coll-summary" id="collSummary"></div>
+  <div id="collChart"></div>
+  <div class="grid" id="collCards"></div>
+  <div id="collEmpty" class="empty-state" hidden>
+    <p class="empty-title">No cards in your collection yet</p>
+    <p>Open any card and tap <strong>Add to collection</strong> — your cards, quantities
+    and total value will live here, with a value chart that grows day by day.</p>
+    <button id="emptyBrowse" class="save-btn">Browse sets</button>
+  </div>
+</main>
+
 <div id="overlay">
   <div class="detail">
     <button class="close" id="closeDetail" aria-label="Close">×</button>
@@ -69,6 +98,7 @@
   English card data and raw market prices from the <a href="https://pokemontcg.io" target="_blank" rel="noopener">Pokémon TCG API</a>
   (TCGPlayer in USD, Cardmarket in EUR).<br>
   Graded prices from <a href="https://www.pricecharting.com" target="_blank" rel="noopener">PriceCharting</a> where available.
+  AUD conversion uses daily European Central Bank rates and is approximate.<br>
   Always confirm with sold listings before buying or selling.
 </footer>
 
