@@ -452,8 +452,8 @@
     const mode = $("setSort").value;
     if (mode === "number-asc") cards.sort(byCollectorNumber);
     else if (mode === "number-desc") cards.sort((a, b) => byCollectorNumber(b, a));
-    else if (mode === "price-desc") cards.sort((a, b) => (bestMarketPrice(b) ?? -1) - (bestMarketPrice(a) ?? -1));
-    else if (mode === "price-asc") cards.sort((a, b) => (bestMarketPrice(a) ?? Infinity) - (bestMarketPrice(b) ?? Infinity));
+    else if (mode === "price-desc") cards.sort((a, b) => (effectivePrice(b) ?? -1) - (effectivePrice(a) ?? -1));
+    else if (mode === "price-asc") cards.sort((a, b) => (effectivePrice(a) ?? Infinity) - (effectivePrice(b) ?? Infinity));
     return cards;
   }
 
@@ -472,10 +472,63 @@
       state.setCards = cards;
       setStatus(`${cards.length} cards. Tap a card for prices.`);
       renderTiles($("setCards"), sortedSetCards());
+      const set = state.sets.find(s => s.id === setId);
+      annotateGuidePrices(set, cards).then(changed => {
+        if (changed && !$("setView").hidden && state.setCards === cards) {
+          renderTiles($("setCards"), sortedSetCards());
+        }
+      });
     } catch (err) {
       $("setCards").innerHTML = "";
       setStatus("Couldn't load this set (" + err.message + "). Go back and try again.", true);
     }
+  }
+
+  // Fill tile prices for cards TCGPlayer hasn't priced yet, using the
+  // price-guide database (one query per set, matched by number + name).
+  const guideSetLoaded = new Set();
+
+  async function annotateGuidePrices(set, cards) {
+    if (!set || guideSetLoaded.has(set.id)) return false;
+    let data;
+    try {
+      const res = await fetch("/api/guide-set?set=" + encodeURIComponent(set.name));
+      const ct = res.headers.get("content-type") || "";
+      if (!res.ok || !ct.includes("json")) return false;
+      data = await res.json();
+    } catch (err) {
+      return false;
+    }
+    if (!data.available || !Array.isArray(data.cards)) return false;
+    guideSetLoaded.add(set.id);
+
+    const byNumber = new Map();
+    for (const g of data.cards) {
+      if (!g.number) continue;
+      if (!byNumber.has(g.number)) byNumber.set(g.number, []);
+      byNumber.get(g.number).push(g);
+    }
+
+    const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ");
+    let changed = false;
+    for (const card of cards) {
+      const candidates = byNumber.get(String(card.number)) || [];
+      if (!candidates.length) continue;
+      const nameTokens = norm(card.name).split(/\s+/).filter(Boolean);
+      // Prefer the base printing over bracketed variants ([Reverse Holo] etc.)
+      const score = (g) => nameTokens.filter(t => norm(g.product).includes(t)).length * 2
+        - (String(g.product).includes("[") ? 1 : 0);
+      const best = candidates.reduce((a, b) => (score(b) > score(a) ? b : a));
+      if (score(best) <= 0) continue; // product name must overlap the card name
+      if (best.ungraded != null && bestMarketPrice(card) == null && card.guideUngraded !== best.ungraded) {
+        card.guideUngraded = best.ungraded;
+        changed = true;
+      }
+      // Remember the product ID so the card view skips the search step too.
+      if (!pcids[card.id]) pcids[card.id] = String(best.id);
+    }
+    store.set("pcv-pcids", pcids);
+    return changed;
   }
 
   // ---------- Search ----------
@@ -533,8 +586,12 @@
   // ---------- Tile rendering ----------
   function tilePriceText(card) {
     const p = bestMarketPrice(card);
-    return p != null ? fmtUSD(p) + " raw" : "no price data";
+    if (p != null) return fmtUSD(p) + " raw";
+    if (card.guideUngraded != null) return fmtUSD(card.guideUngraded) + " ungraded";
+    return "no price data";
   }
+
+  const effectivePrice = (card) => bestMarketPrice(card) ?? card.guideUngraded ?? null;
 
   function cardTileHTML(c) {
     return `
