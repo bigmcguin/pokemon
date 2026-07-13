@@ -87,5 +87,14 @@ export default async function handler(req, res) {
     upserted += b.length;
   }
 
-  return res.status(200).json({ ok: true, pokemonRows: upserted, csvRows: parsed.length });
+  // Report which columns arrived and how many rows carry graded data — makes
+  // subscription-tier changes on PriceCharting's side visible at a glance.
+  const gradedCount = items.filter(x => x.grade9 != null || x.psa10 != null).length;
+  return res.status(200).json({
+    ok: true,
+    pokemonRows: upserted,
+    csvRows: parsed.length,
+    rowsWithGradedPrices: gradedCount,
+    csvColumns: Object.keys(parsed[0] || {}),
+  });
 }
