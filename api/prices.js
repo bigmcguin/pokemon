@@ -15,7 +15,7 @@ import { getSql } from "../lib/db.js";
 export const config = { maxDuration: 30 };
 
 const memoryCache = new Map();
-const TTL_MS = 24 * 60 * 60 * 1000;
+const TTL_MS = 6 * 60 * 60 * 1000;
 const PC = "https://www.pricecharting.com";
 
 // The daily price-guide import (api/refresh-guide.js) is the preferred
@@ -112,7 +112,7 @@ async function pcJson(url) {
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", req.query.debug
     ? "no-store"
-    : "s-maxage=86400, stale-while-revalidate=43200");
+    : "s-maxage=21600, stale-while-revalidate=21600");
 
   const token = process.env.PRICECHARTING_TOKEN;
   if (!token) {
@@ -238,6 +238,11 @@ export default async function handler(req, res) {
     return res.status(200).json(value); // don't cache debug responses
   }
 
-  memoryCache.set(cacheKey, { at: Date.now(), value });
+  // Don't memory-cache live-API or not-found results when a guide DB exists:
+  // the nightly import may fill them in, and the next request should pick
+  // that up rather than a stale fallback.
+  if (value.source === "price-guide" || !getSql()) {
+    memoryCache.set(cacheKey, { at: Date.now(), value });
+  }
   return res.status(200).json(value);
 }
