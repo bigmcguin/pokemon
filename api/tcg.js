@@ -3,6 +3,8 @@
 // in the page, and (2) cache responses at Vercel's edge — the upstream API is
 // often slow, so repeat visits to a set or search are served in milliseconds.
 
+export const config = { maxDuration: 30 };
+
 const UPSTREAM = "https://api.pokemontcg.io/v2/";
 const ALLOWED_PATHS = new Set(["cards", "sets"]);
 

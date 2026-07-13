@@ -12,6 +12,8 @@
 
 import { getSql } from "../lib/db.js";
 
+export const config = { maxDuration: 30 };
+
 const memoryCache = new Map();
 const TTL_MS = 24 * 60 * 60 * 1000;
 const PC = "https://www.pricecharting.com";
